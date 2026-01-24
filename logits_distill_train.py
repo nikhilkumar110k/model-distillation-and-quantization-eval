@@ -72,7 +72,7 @@ layer_map = build_layer_map(
 
 print("Layer map:", layer_map)
 
-def kd_loss(student_logits, teacher_logits, T=2.0):
+def kd_loss(student_logits, teacher_logits, T=3.0):
     s = F.log_softmax(student_logits / T, dim=-1)
     t = F.softmax(teacher_logits / T, dim=-1)
     return F.kl_div(s, t, reduction="batchmean") * (T * T)
@@ -89,7 +89,7 @@ for step in range(50):
 
     student_logits, student_attns = student(inputs, return_attn=True)
 
-    loss_kd = kd_loss(student_logits, teacher_logits, T=2.0)
+    loss_kd = kd_loss(student_logits, teacher_logits, T=3.0)
     loss_attn = attention_distill_loss(
         student_attns,
         teacher_attns,
