@@ -1,8 +1,8 @@
 import torch
 from transformers import T5Tokenizer, T5EncoderModel
 
-from selfattention import GPTClassifier
-from layermap import build_layer_map, attention_distill_loss
+from distillation.selfattention import GPTClassifier
+from distillation.layermap import build_layer_map, attention_distill_loss
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(device)
