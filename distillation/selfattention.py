@@ -136,7 +136,8 @@ class GPTClassifier(nn.Module):
                 all_attns.append(attn)
 
         x = self.ln(x)
-        logits = self.classifier(x[:, -1, :])
+        pooled = x.mean(dim=1)
+        logits = self.classifier(pooled)
 
         if return_attn:
             return logits, all_attns  

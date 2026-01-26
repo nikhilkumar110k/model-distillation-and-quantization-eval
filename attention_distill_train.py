@@ -3,10 +3,29 @@ from transformers import T5Tokenizer, T5EncoderModel
 import os
 from distillation.selfattention import GPTClassifier
 from distillation.layermap import build_layer_map, attention_distill_loss
+import pandas as pd 
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", device)
 
+df = pd.read_csv(r"dataset\Tweets.csv")
+
+
+df = df[df["sentiment"].isin(["positive", "negative"])].reset_index(drop=True)
+
+label_map = {"negative": 0, "positive": 1}
+
+df["label"] = df["sentiment"].map(label_map)
+
+df = (
+    df.groupby(as_index=False, by="label", group_keys=False)
+      .apply(lambda x: x.sample(frac=0.2, random_state=42))
+      .reset_index(drop=True)
+)
+
+print(df.head())
+print(df["sentiment"].value_counts())
 
 teacher_name = "google/flan-t5-large"
 
@@ -34,7 +53,7 @@ optimizer = torch.optim.AdamW(student.parameters(), lr=3e-4)
 
 text = ["this movie was surprisingly good"]
 inputs = tokenizer(
-    text,
+    df["text"].tolist(),
     return_tensors="pt",
     padding=True,
     truncation=True,

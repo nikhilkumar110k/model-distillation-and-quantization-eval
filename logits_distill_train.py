@@ -116,13 +116,13 @@ def kd_loss(student_logits, teacher_logits, T=3.0):
     return F.kl_div(s, t, reduction="batchmean") * (T * T)
 
 ce_loss = torch.nn.CrossEntropyLoss()
-alpha = 0.5
+alpha = 0.4
 
 student.train()
 
 student.train()
 
-for epoch in range(5):
+for epoch in range(8):
     total_loss = 0.0
 
     for batch in loader:
