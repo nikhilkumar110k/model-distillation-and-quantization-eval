@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from transformers import T5Tokenizer, T5EncoderModel
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from distillation.selfattention import GPTClassifier
 
@@ -9,27 +9,23 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", device)
 
 
-teacher_name = "google/flan-t5-large"
-tokenizer = T5Tokenizer.from_pretrained(teacher_name)
+teacher_name = "distilbert-base-uncased-finetuned-sst-2-english"
 
-teacher = T5EncoderModel.from_pretrained(
-    teacher_name,
-    output_attentions=False
+tokenizer = AutoTokenizer.from_pretrained(teacher_name)
+
+teacher = AutoModelForSequenceClassification.from_pretrained(
+    teacher_name
 ).to(device)
 
 teacher.eval()
 for p in teacher.parameters():
     p.requires_grad = False
 
-teacher_classifier = torch.nn.Linear(
-    teacher.config.d_model, 2
-).to(device)
 
-teacher_classifier.eval()
-for p in teacher_classifier.parameters():
-    p.requires_grad = False
-
-ckpt = torch.load("./model/student_logits_distilled.pt", map_location=device)
+ckpt = torch.load(
+    "./model/student_logits_distilled.pt",
+    map_location=device
+)
 
 student = GPTClassifier(
     vocab_size=ckpt["vocab_size"],
@@ -45,25 +41,45 @@ student.eval()
 texts = [
     "this movie was amazing and I loved it",
     "this was the worst experience of my life",
+    "absolutely fantastic acting and story",
+    "i hate this product so much",
+    "it was okay, not great but not terrible",
 ]
-inputs = tokenizer(
+
+enc = tokenizer(
     texts,
     return_tensors="pt",
     padding=True,
     truncation=True,
     max_length=128
-).input_ids.to(device)
+)
+
+input_ids = enc["input_ids"].to(device)
+attention_mask = enc["attention_mask"].to(device)
+
 
 with torch.no_grad():
-    teacher_hidden = teacher(inputs).last_hidden_state
-    teacher_logits = teacher_classifier(teacher_hidden[:, -1, :])
-    teacher_probs = F.softmax(teacher_logits, dim=-1)
+    teacher_logits = teacher(
+        input_ids=input_ids,
+        attention_mask=attention_mask
+    ).logits
 
-    student_logits = student(inputs)
+    student_logits = student(input_ids)
+
+    teacher_probs = F.softmax(teacher_logits, dim=-1)
     student_probs = F.softmax(student_logits, dim=-1)
 
+
 for i, text in enumerate(texts):
-    print("=" * 60)
+    print("=" * 70)
     print(text)
-    print("Teacher probs :", teacher_probs[i].cpu().numpy())
-    print("Student probs :", student_probs[i].cpu().numpy())
+
+    print(
+        f"Teacher  → Negative: {teacher_probs[i,0]:.3f} | "
+        f"Positive: {teacher_probs[i,1]:.3f}"
+    )
+
+    print(
+        f"Student  → Negative: {student_probs[i,0]:.3f} | "
+        f"Positive: {student_probs[i,1]:.3f}"
+    )

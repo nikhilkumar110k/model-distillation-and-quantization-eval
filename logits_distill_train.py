@@ -14,13 +14,22 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", device)
 
 df = pd.read_csv(r"dataset\Tweets.csv")
-print(df.head())
-print(df["sentiment"].value_counts())
+
 
 df = df[df["sentiment"].isin(["positive", "negative"])].reset_index(drop=True)
 
 label_map = {"negative": 0, "positive": 1}
+
 df["label"] = df["sentiment"].map(label_map)
+
+df = (
+    df.groupby(as_index=False, by="label", group_keys=False)
+      .apply(lambda x: x.sample(frac=0.2, random_state=42))
+      .reset_index(drop=True)
+)
+
+print(df.head())
+print(df["sentiment"].value_counts())
 
 teacher_name = "distilbert-base-uncased-finetuned-sst-2-english"
 
@@ -37,18 +46,21 @@ class TwitterDataset(Dataset):
         return len(self.texts)
 
     def __getitem__(self, idx):
-        enc = self.tokenizer(
-            self.texts[idx],
-            truncation=True,
-            padding="max_length",
-            max_length=self.max_len,
-            return_tensors="pt"
-        )
+            enc = self.tokenizer(
+                self.texts[idx],
+                truncation=True,
+                padding="max_length",
+                max_length=self.max_len,
+                return_tensors="pt"
+            )
 
-        return {
-            "input_ids": enc["input_ids"].squeeze(0),
-            "label": torch.tensor(self.labels[idx], dtype=torch.long)
-        }
+            return {
+        "input_ids": enc["input_ids"].squeeze(0),
+        "attention_mask": enc["attention_mask"].squeeze(0),
+        "label": torch.tensor(self.labels[idx], dtype=torch.long)
+    }
+
+        
 
 
 dataset = TwitterDataset(
@@ -89,9 +101,8 @@ student.load_state_dict(ckpt["model_state_dict"])
 optimizer = torch.optim.AdamW(student.parameters(), lr=2e-4)
 
 
-texts = ["this movie was surprisingly good"]
 inputs = tokenizer(
-    texts,
+    df["text"].tolist(),
     return_tensors="pt",
     padding=True,
     truncation=True,
@@ -105,21 +116,27 @@ def kd_loss(student_logits, teacher_logits, T=3.0):
     return F.kl_div(s, t, reduction="batchmean") * (T * T)
 
 ce_loss = torch.nn.CrossEntropyLoss()
-alpha = 0.7
+alpha = 0.5
 
 student.train()
 
 student.train()
 
-for epoch in range(3):
+for epoch in range(5):
     total_loss = 0.0
 
     for batch in loader:
         input_ids = batch["input_ids"].to(device)
         labels = batch["label"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
 
         with torch.no_grad():
-            teacher_logits = teacher(input_ids=input_ids).logits
+
+            
+            teacher_logits = teacher(
+    input_ids=input_ids,
+    attention_mask=attention_mask
+).logits
 
         student_logits = student(input_ids)
 
