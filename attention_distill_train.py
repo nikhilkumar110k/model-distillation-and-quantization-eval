@@ -110,5 +110,5 @@ torch.save(
     },
     save_path
 )
-
+torch.cuda.empty_cache()
 print(f"Student model saved to {save_path}")

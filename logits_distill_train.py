@@ -168,5 +168,5 @@ torch.save(
     },
     "./model/student_logits_distilled.pt",
 )
-
+torch.cuda.empty_cache()
 print("Final student model saved.")
