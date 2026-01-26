@@ -1,35 +1,75 @@
 import os
 import torch
 import torch.nn.functional as F
-from transformers import T5Tokenizer, T5EncoderModel
-
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import kagglehub
+from kagglehub import KaggleDatasetAdapter
 from distillation.selfattention import GPTClassifier
-from distillation.layermap import build_layer_map, attention_distill_loss
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader
+import pandas as pd 
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", device)
 
+df = pd.read_csv(r"dataset\Tweets.csv")
+print(df.head())
+print(df["sentiment"].value_counts())
 
-teacher_name = "google/flan-t5-large"
+df = df[df["sentiment"].isin(["positive", "negative"])].reset_index(drop=True)
 
-tokenizer = T5Tokenizer.from_pretrained(teacher_name)
-teacher = T5EncoderModel.from_pretrained(
-    teacher_name,
-    output_attentions=True
+label_map = {"negative": 0, "positive": 1}
+df["label"] = df["sentiment"].map(label_map)
+
+teacher_name = "distilbert-base-uncased-finetuned-sst-2-english"
+
+tokenizer = AutoTokenizer.from_pretrained(teacher_name)
+
+class TwitterDataset(Dataset):
+    def __init__(self, texts, labels, tokenizer, max_len=128):
+        self.texts = texts
+        self.labels = labels
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        enc = self.tokenizer(
+            self.texts[idx],
+            truncation=True,
+            padding="max_length",
+            max_length=self.max_len,
+            return_tensors="pt"
+        )
+
+        return {
+            "input_ids": enc["input_ids"].squeeze(0),
+            "label": torch.tensor(self.labels[idx], dtype=torch.long)
+        }
+
+
+dataset = TwitterDataset(
+    df["text"].tolist(),
+    df["label"].tolist(),
+    tokenizer
+)
+
+loader = DataLoader(dataset, batch_size=16, shuffle=True)
+
+
+
+
+teacher = AutoModelForSequenceClassification.from_pretrained(
+    teacher_name
 ).to(device)
 
 teacher.eval()
 for p in teacher.parameters():
     p.requires_grad = False
 
-teacher_classifier = torch.nn.Linear(
-    teacher.config.d_model, 2
-).to(device)
-
-teacher_classifier.eval()
-for p in teacher_classifier.parameters():
-    p.requires_grad = False
 
 ckpt = torch.load(
     "./model/student_attention_distilled.pt",
@@ -46,7 +86,6 @@ student = GPTClassifier(
 
 student.load_state_dict(ckpt["model_state_dict"])
 
-
 optimizer = torch.optim.AdamW(student.parameters(), lr=2e-4)
 
 
@@ -60,51 +99,44 @@ inputs = tokenizer(
 ).input_ids.to(device)
 
 
-with torch.no_grad():
-    teacher_attns = teacher(inputs).attentions
-
-_, student_attns = student(inputs, return_attn=True)
-
-layer_map = build_layer_map(
-    num_teacher_layers=len(teacher_attns),
-    num_student_layers=len(student_attns),
-)
-
-print("Layer map:", layer_map)
-
-def kd_loss(student_logits, teacher_logits, T=4.0):
+def kd_loss(student_logits, teacher_logits, T=3.0):
     s = F.log_softmax(student_logits / T, dim=-1)
     t = F.softmax(teacher_logits / T, dim=-1)
     return F.kl_div(s, t, reduction="batchmean") * (T * T)
 
+ce_loss = torch.nn.CrossEntropyLoss()
+alpha = 0.7
 
 student.train()
 
-for step in range(50):
-    with torch.no_grad():
-        teacher_out = teacher(inputs)
-        teacher_hidden = teacher_out.last_hidden_state
-        teacher_logits = teacher_classifier(teacher_hidden[:, -1, :])
-        teacher_attns = teacher_out.attentions
+student.train()
 
-    student_logits, student_attns = student(inputs, return_attn=True)
+for epoch in range(3):
+    total_loss = 0.0
 
-    loss_kd = kd_loss(student_logits, teacher_logits, T=4.0)
-    loss_attn = attention_distill_loss(
-        student_attns,
-        teacher_attns,
-        layer_map
-    )
+    for batch in loader:
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["label"].to(device)
 
-    loss = loss_kd + 0.5 * loss_attn
+        with torch.no_grad():
+            teacher_logits = teacher(input_ids=input_ids).logits
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+        student_logits = student(input_ids)
 
-    print(
-        f"Step {step:02d} | KD: {loss_kd.item():.4f} | Attn: {loss_attn.item():.4f}"
-    )
+        loss_kd = kd_loss(student_logits, teacher_logits, T=3.0)
+        loss_ce = ce_loss(student_logits, labels)
+
+        loss = alpha * loss_kd + (1 - alpha) * loss_ce
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch} | Avg loss: {total_loss / len(loader):.4f}")
+
+
 
 os.makedirs("./model", exist_ok=True)
 
