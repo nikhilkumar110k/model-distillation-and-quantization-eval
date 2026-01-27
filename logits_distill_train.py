@@ -120,8 +120,6 @@ alpha = 0.4
 
 student.train()
 
-student.train()
-
 for epoch in range(8):
     total_loss = 0.0
 
