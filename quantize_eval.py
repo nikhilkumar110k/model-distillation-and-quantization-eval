@@ -22,17 +22,23 @@ for p in teacher.parameters():
     p.requires_grad = False
 
 
-ckpt = torch.load(
-    "./model/student_int8.pt",
-    map_location=device
-)
+state_dict = torch.load("./model/student_dequantized.pt", map_location=device)
+ckpt = {
+    "vocab_size": 32000,
+    "embed_size": 400,
+    "context": 312,
+    "n_heads": 8,
+    "n_layers": 4,
+    "model_state_dict": state_dict
+}
+
 
 student = GPTClassifier(
-    vocab_size=12800,
-    embed_size=128,
-    context=128,
-    n_heads=6,
-    n_layers=4,
+    vocab_size=ckpt["vocab_size"],
+    embed_size=ckpt["embed_size"],
+    context=ckpt["context"],
+    n_heads=ckpt["n_heads"],
+    n_layers=ckpt["n_layers"],
 ).to(device)
 
 student.load_state_dict(ckpt["model_state_dict"])
