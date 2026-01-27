@@ -1,18 +1,30 @@
+import math
 import torch
 import torch.nn as nn
 from  quantizer.affinequantize import AffineQuantizer
 from quantizer.observer_quantizer import MinMaxObserver
 
+def calculate_qparams(x, qmin=0, qmax=255):
+    rmin = x.min()
+    rmax = x.max()
+
+    scale = (rmax - rmin) / (qmax - qmin)
+    scale = max(scale, 1e-8)
+
+    zero_point = qmin - rmin / scale
+    zero_point = int(math.ceil(zero_point))
+    zero_point = max(qmin, min(qmax, zero_point))
+
+    return scale, zero_point
 
 
-def quantize_affine(x, scale, zero_point, qmin, qmax):
+def quantize_affine(x, scale, zero_point, qmin=0, qmax=255):
     q = torch.round(x / scale) + zero_point
     q = torch.clamp(q, qmin, qmax)
-    return q.to(torch.int32)
+    return q.to(torch.int8)
 
 def dequantize_affine(q, scale, zero_point):
     return scale * (q.float() - zero_point)
-
 
 class QuantizedLinear(nn.Module):
     def __init__(self, in_features, out_features):
