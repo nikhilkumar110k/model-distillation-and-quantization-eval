@@ -1,6 +1,6 @@
 Model Distillation & Quantization (From Scratch)
 
-This repository is a from-scratch, research-grade implementation of Transformer model distillation, focusing on attention distillation, logits (KD) distillation, and preparation for quantization — without relying on high-level distillation frameworks.
+This repository is a from-scratch, implementation of Transformer model distillation, focusing on attention distillation, logits (KD) distillation, and preparation for quantization — without relying on high-level distillation frameworks.
 
 The goal of this project is not to train a state-of-the-art classifier out of the box, but to understand, implement, and validate the mechanics of distillation end‑to‑end.
 
